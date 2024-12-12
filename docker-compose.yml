@@ -1,0 +1,81 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:14
+    container_name: keycloak-postgres
+    environment:
+      POSTGRES_DB: keycloak
+      POSTGRES_USER: keycloak
+      POSTGRES_PASSWORD: password123
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - keycloak-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U keycloak"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.4
+    container_name: keycloak
+    command: start-dev --import-realm
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: keycloak
+      KC_DB_PASSWORD: password123
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY: edge
+      KC_HOSTNAME: localhost
+      KC_HOSTNAME_PATH: /auth
+      KC_HTTP_RELATIVE_PATH: /auth
+    volumes:
+      - ./keycloak/service-provider.json:/opt/keycloak/data/import/realm.json
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - keycloak-network
+
+  service-provider:
+    build:
+      context: ./service_provider_project
+      dockerfile: Dockerfile
+    container_name: service-provider
+    ports:
+      - "8000:8000"
+    environment:
+      - DJANGO_SETTINGS_MODULE=service_provider.settings
+      - KEYCLOAK_URL=http://keycloak:8080
+      - KEYCLOAK_REALM=realmsilvio
+      - KEYCLOAK_CLIENT_ID=service-provider
+      - KEYCLOAK_CLIENT_SECRET=sdLJNVUrDnXX9fPh04obYG80WVmDhRMX
+      - DJANGO_SECRET_KEY=your-django-secret-key
+      - DEBUG=True
+      - ALLOWED_HOSTS=localhost,127.0.0.1
+    volumes:
+      - ./service_provider_project:/app
+    depends_on:
+      - keycloak
+    networks:
+      - keycloak-network
+    command: python manage.py runserver 0.0.0.0:8000
+
+volumes:
+  postgres_data:
+
+networks:
+  keycloak-network:
+    name: keycloak_custom_network
+    driver: bridge
